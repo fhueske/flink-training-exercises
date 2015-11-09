@@ -17,10 +17,11 @@
 package com.dataArtisans.flinkTraining.exercises.dataStreamScala.kafkaInOut
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.{GeoUtils, TaxiRideGenerator, TaxiRideSchema}
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.{TaxiRideSchema, GeoUtils}
 import org.apache.flink.api.java.utils.ParameterTool
-import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer
+import org.apache.flink.streaming.api.scala._
 
 /**
  * Scala reference implementation for the "Ride Cleansing" exercise of the Flink training (http://dataartisans.github.io/flink-training).
@@ -48,7 +49,7 @@ object RideCleansingToKafka {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
 
     // get the taxi ride data stream
-    val rides = env.addSource(new TaxiRideGenerator(input, speed))
+    val rides = env.addSource(new TaxiRideSource(input, speed))
 
     val filteredRides = rides
       // filter out rides that do not start and end in NYC

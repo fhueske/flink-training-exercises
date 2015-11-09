@@ -86,8 +86,7 @@
 			<artifactId>joda-time</artifactId>
 			<version>2.7</version>
 		</dependency>
-
-	</dependencies>
+    </dependencies>
 
 	<build>
 		<plugins>

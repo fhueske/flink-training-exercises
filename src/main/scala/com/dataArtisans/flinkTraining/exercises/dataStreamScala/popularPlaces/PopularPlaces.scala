@@ -16,21 +16,12 @@
 
 package com.dataArtisans.flinkTraining.exercises.dataStreamScala.popularPlaces
 
-import java.util.concurrent.TimeUnit
-
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.{GeoUtils, TaxiRideGenerator}
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils
 import org.apache.flink.api.common.functions.MapFunction
-import org.apache.flink.api.java.tuple.Tuple
 import org.apache.flink.api.java.utils.ParameterTool
-import org.apache.flink.streaming.api.functions.windowing.WindowFunction
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.windowing.assigners.SlidingTimeWindows
-import org.apache.flink.streaming.api.windowing.time.Time
-import org.apache.flink.streaming.api.windowing.windows.TimeWindow
-import org.apache.flink.util.Collector
-
-import scala.collection.JavaConverters._
 
 /**
  * Scala reference implementation for the "Popular Places" exercise of the Flink training (http://dataartisans.github.io/flink-training).
@@ -62,25 +53,27 @@ object PopularPlaces {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
 
     // start the data generator
-    val rides = env.addSource(new TaxiRideGenerator(input, servingSpeedFactor))
+    val rides = env.addSource(new TaxiRideSource(input, servingSpeedFactor))
 
-    // find n most popular spots
-    val popularSpots = rides
-      // remove all rides which are not within NYC
-      .filter { r => GeoUtils.isInNYC(r.startLon, r.startLat) && GeoUtils.isInNYC(r.endLon, r.endLat) }
-      // match ride to grid cell and event type (start or end)
-      .map(new GridCellMatcher)
-      // partition by cell id and event type
-      .keyBy(0, 1)
-      // build sliding window
-      .window(SlidingTimeWindows.of(Time.of(windowSize, TimeUnit.MILLISECONDS), Time.of(evictionInterval, TimeUnit.MILLISECONDS)))
-      // count events in window
-      .apply(new PopularityCounter(popThreashold))
-      // map grid cell to coordinates
-      .map(new GridToCoordinates)
-
-    // print result on stdout
-    popularSpots.print()
+//    // find n most popular spots
+//    val popularSpots = rides
+//      // remove all rides which are not within NYC
+//      .filter { r => GeoUtils.isInNYC(r.startLon, r.startLat) && GeoUtils.isInNYC(r.endLon, r.endLat) }
+//      // match ride to grid cell and event type (start or end)
+//      .map(new GridCellMatcher)
+//      // partition by cell id and event type
+//      .groupBy(0, 1)
+//      // build sliding window
+//      .window(Time.of(windowSize, TimeUnit.MILLISECONDS))
+//        .every(Time.of(evictionInterval, TimeUnit.MILLISECONDS))
+//      // count events in window
+//      .mapWindow(new PopularityCounter(popThreashold))
+//      .flatten()
+//      // map grid cell to coordinates
+//      .map(new GridToCoordinates)
+//
+//    // print result on stdout
+//    popularSpots.print()
 
     // execute the transformation pipeline
     env.execute("Popular Places")
@@ -109,22 +102,20 @@ object PopularPlaces {
    * Count window events for grid cell and event type.
    * Only emits records if the count is equal or larger than the popularity threshold.
    */
-  class PopularityCounter(popThreshold: Int) extends WindowFunction[(Int, Boolean), (Int, Boolean, Int),
-    Tuple, TimeWindow] {
-
-    def apply(tuple: Tuple, window: TimeWindow, values: java.lang.Iterable[(Int, Boolean)],
-              out: Collector[(Int, Boolean, Int)]) {
-
-      // count records in window and build output record
-      val result = values.asScala.foldLeft((0, false, 0)) { (l, r) => (r._1, r._2, l._3 + 1) }
-
-      // check threshold
-      if (result._3 > popThreshold) {
-        // emit record
-        out.collect(result)
-      }
-    }
-  }
+//  class PopularityCounter(popThreshold: Int) extends WindowMapFunction[(Int, Boolean), (Int, Boolean, Int)] {
+//
+//    def mapWindow(values: java.lang.Iterable[(Int, Boolean)], out: Collector[(Int, Boolean, Int)]) {
+//
+//      // count records in window and build output record
+//      val result = values.asScala.foldLeft((0, false, 0)) { (l, r) => (r._1, r._2, l._3 + 1) }
+//
+//      // check threshold
+//      if (result._3 > popThreshold) {
+//        // emit record
+//        out.collect(result)
+//      }
+//    }
+//  }
 
   /**
    * Maps the grid cell id back to longitude and latitude coordinates.

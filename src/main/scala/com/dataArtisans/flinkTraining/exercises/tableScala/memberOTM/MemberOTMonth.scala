@@ -71,7 +71,7 @@ object MemberOTMonth {
       .join(mailsPerSenderMonth).where('m === 'month && 'max === 'cnt).select('month, 'sender)
 
     // print out result
-    membersOTMonth.toDataSet[Row].print
+    membersOTMonth.toDataSet[Row].print()
   }
 
 }

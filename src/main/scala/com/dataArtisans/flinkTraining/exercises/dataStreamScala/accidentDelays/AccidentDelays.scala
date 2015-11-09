@@ -17,7 +17,8 @@
 package com.dataArtisans.flinkTraining.exercises.dataStreamScala.accidentDelays
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.{Accident, TaxiRide}
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.{AccidentGenerator, GeoUtils, TaxiRideGenerator}
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.{TaxiRideSource, AccidentSource}
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils
 import org.apache.flink.api.common.functions.{FlatMapFunction, MapFunction}
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction
@@ -50,13 +51,13 @@ object AccidentDelays {
 
     // create taxi ride stream
     val rides = env
-      .addSource(new TaxiRideGenerator(input, servingSpeedFactor))
+      .addSource(new TaxiRideSource(input, servingSpeedFactor))
       // filter rides that do not start and end in NYC
       .filter(r => GeoUtils.isInNYC(r.startLon, r.startLat) && GeoUtils.isInNYC(r.endLon, r.endLat))
 
     // create accidents stream
     val accidents = env
-      .addSource(new AccidentGenerator(servingSpeedFactor))
+      .addSource(new AccidentSource(servingSpeedFactor))
       // map accident to grid cell
       .map(new AccidentCellMapper)
       // group by accident cell id

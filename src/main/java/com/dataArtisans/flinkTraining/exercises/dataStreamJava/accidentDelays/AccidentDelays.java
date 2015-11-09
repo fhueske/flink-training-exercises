@@ -18,10 +18,10 @@ package com.dataArtisans.flinkTraining.exercises.dataStreamJava.accidentDelays;
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.Accident;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.rideCleansing.RideCleansing;
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.AccidentGenerator;
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.AccidentSource;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide;
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.TaxiRideGenerator;
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -58,13 +58,13 @@ public class AccidentDelays {
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
 		// create taxi ride stream
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideGenerator(input, servingSpeedFactor))
+		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input, servingSpeedFactor))
 				// filter rides which do not start and end in NYC
 				.filter(new RideCleansing.NYCFilter());
 
 		// create accidents stream
 		DataStream<Tuple2<Integer,Accident>> accidents = env
-				.addSource(new AccidentGenerator(servingSpeedFactor))
+				.addSource(new AccidentSource(servingSpeedFactor))
 				// map accident to grid cell
 				.map(new AccidentCellMapper())
 				// group by accident cell id

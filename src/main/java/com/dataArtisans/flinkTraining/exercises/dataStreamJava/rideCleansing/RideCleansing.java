@@ -16,11 +16,12 @@
 
 package com.dataArtisans.flinkTraining.exercises.dataStreamJava.rideCleansing;
 
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide;
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.TaxiRideGenerator;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
@@ -31,7 +32,6 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
  *
  * Parameters:
  *   --input path-to-input-directory
- *   --speed serving-speed-of-generator
  *
  */
 public class RideCleansing {
@@ -40,13 +40,13 @@ public class RideCleansing {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
 		String input = params.getRequired("input");
-		float servingSpeedFactor = params.getFloat("speed", 1.0f);
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideGenerator(input, servingSpeedFactor));
+		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input));
 
 		DataStream<TaxiRide> filteredRides = rides
 				// filter out rides that do not start or stop in NYC

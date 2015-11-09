@@ -18,7 +18,7 @@ package com.dataArtisans.flinkTraining.exercises.dataStreamJava.kafkaInOut;
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils;
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.TaxiRideGenerator;
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.TaxiRideSchema;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -53,7 +53,7 @@ public class RideCleansingToKafka {
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideGenerator(input, servingSpeedFactor));
+		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input, servingSpeedFactor));
 
 		DataStream<TaxiRide> filteredRides = rides
 				// filter out rides that do not start or stop in NYC

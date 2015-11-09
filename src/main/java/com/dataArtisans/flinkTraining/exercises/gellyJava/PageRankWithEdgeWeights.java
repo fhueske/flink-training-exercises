@@ -96,20 +96,18 @@ public class PageRankWithEdgeWeights{
 				.joinWithEdgesOnSource(sumEdgeWeights,
 						new EdgeJoinFunction<Double, Double>() {
 							@Override
-							public Double edgeJoin(Double double1, Double double2) throws Exception {
-								return double1 / double2;
+							public Double edgeJoin(Double v1, Double v2) throws Exception {
+								return v1 / v2;
 							}
 						});
-								
 
 		//Now run the Page Rank algorithm over the weighted graph
 		DataSet<Vertex<String, Double>> pageRanks = networkWithWeights.run(
 				new PageRank<String>(DAMPENING_FACTOR, maxIterations));
 
 		pageRanks.writeAsCsv(outputPath, "\n", "\t");
-
 		// since file sinks are lazy,trigger the execution explicitly
-		env.execute("Run PageRank with Edge Weights");
+		env.execute("PageRank with Edge Weights");
 
 	}
 

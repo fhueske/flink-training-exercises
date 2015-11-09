@@ -17,7 +17,8 @@
 package com.dataArtisans.flinkTraining.exercises.dataStreamScala.rideSpeed
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.{GeoUtils, TaxiRideGenerator }
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils
 import org.apache.flink.api.common.functions.{FlatMapFunction, MapFunction}
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.streaming.api.scala._
@@ -47,7 +48,7 @@ object RideSpeed {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
 
     // get the taxi ride data stream
-    val rides = env.addSource(new TaxiRideGenerator(input, speed))
+    val rides = env.addSource(new TaxiRideSource(input, speed))
 
     val rideSpeeds = rides
       // filter out rides that do not start and end in NYC

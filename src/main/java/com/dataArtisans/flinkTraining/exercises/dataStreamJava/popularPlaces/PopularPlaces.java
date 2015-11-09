@@ -17,24 +17,20 @@
 package com.dataArtisans.flinkTraining.exercises.dataStreamJava.popularPlaces;
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.rideCleansing.RideCleansing;
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide;
-import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.TaxiRideGenerator;
+import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.common.functions.FoldFunction;
 import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
-import org.apache.flink.streaming.api.windowing.assigners.SlidingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
-import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
-import org.apache.flink.util.Collector;
-
-import java.util.concurrent.TimeUnit;
 
 /**
  * Java reference implementation for the "Popular Places" exercise of the Flink training (http://dataartisans.github.io/flink-training).
@@ -43,31 +39,23 @@ import java.util.concurrent.TimeUnit;
  * Parameters:
  *   --input path-to-input-directory
  *   -- popThreshold min-num-of-taxis-for-popular-places
- *   --speed serving-speed-of-generator
  *
  */
 public class PopularPlaces {
-
-	private static final long COUNT_WINDOW_LENGTH = 15 * 60 * 1000; // 15 minutes in msecs
-	private static final long COUNT_WINDOW_FREQUENCY = 5 * 60 * 1000; // 5 minutes in msecs
 
 	public static void main(String[] args) throws Exception {
 
 		// read parameters
 		ParameterTool params = ParameterTool.fromArgs(args);
 		String input = params.getRequired("input");
-		int popThreshold = Integer.parseInt(params.getRequired("popThreshold"));
-		float servingSpeedFactor = params.getFloat("speed", 1.0f);
-
-		// adjust window size and eviction interval to fast-forward factor
-		int windowSize = (int)(COUNT_WINDOW_LENGTH / servingSpeedFactor);
-		int evictionInterval = (int)(COUNT_WINDOW_FREQUENCY / servingSpeedFactor);
+		final int popThreshold = Integer.parseInt(params.getRequired("popThreshold"));
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideGenerator(input, servingSpeedFactor));
+		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input));
 
 		// find n most popular spots
 		DataStream<Tuple4<Float, Float, Boolean, Integer>> popularSpots = rides
@@ -78,10 +66,28 @@ public class PopularPlaces {
 				// partition by cell id and event type
 				.keyBy(0, 1)
 				// build sliding window
-				.window(SlidingTimeWindows.of(Time.of(windowSize, TimeUnit.MILLISECONDS),
-						Time.of(evictionInterval, TimeUnit.MILLISECONDS)))
+				.timeWindow(Time.minutes(15), Time.minutes(5))
 				// count events in window
-				.apply(new PopularityCounter(popThreshold))
+				.fold(new Tuple3<Integer, Boolean, Integer>(0, false, 0),
+						new FoldFunction<Tuple2<Integer, Boolean>, Tuple3<Integer, Boolean, Integer>>() {
+					@Override
+					public Tuple3<Integer, Boolean, Integer> fold(
+							Tuple3<Integer, Boolean, Integer> cnt,
+							Tuple2<Integer, Boolean> ride) throws Exception {
+
+						cnt.f0 = ride.f0;
+						cnt.f1 = ride.f1;
+						cnt.f2++;
+						return cnt;
+					}
+				})
+				// filter by pop threshold
+				.filter(new FilterFunction<Tuple3<Integer, Boolean, Integer>>() {
+					@Override
+					public boolean filter(Tuple3<Integer, Boolean, Integer> count) throws Exception {
+						return count.f2 >= popThreshold;
+					}
+				})
 				// map grid cell to coordinates
 				.map(new GridToCoordinates());
 
@@ -108,43 +114,6 @@ public class PopularPlaces {
 				// get grid cell id for end location
 				int gridId = GeoUtils.mapToGridCell(taxiRide.endLon, taxiRide.endLat);
 				return new Tuple2<Integer, Boolean>(gridId, false);
-			}
-		}
-	}
-
-	/**
-	 * Count window events for grid cell and event type.
-	 * Only emits records if the count is equal or larger than the popularity threshold.
-	 */
-	public static class PopularityCounter implements
-			WindowFunction<Tuple2<Integer, Boolean>, Tuple3<Integer, Boolean, Integer>, Tuple, TimeWindow> {
-
-		private int popThreshold;
-
-		public PopularityCounter(int popThreshold) {
-			this.popThreshold = popThreshold;
-		}
-
-		@Override
-		public void apply(Tuple tuple, TimeWindow window, Iterable<Tuple2<Integer, Boolean>> values,
-											Collector<Tuple3<Integer, Boolean, Integer>> out) {
-
-			Tuple3<Integer, Boolean, Integer> cellCount = new Tuple3<Integer, Boolean, Integer>();
-
-			cellCount.f2 = 0;
-			for (Tuple2<Integer, Boolean> value : values) {
-				// grid id
-				cellCount.f0 = value.f0;
-				// arriving or departing
-				cellCount.f1 = value.f1;
-				// increase counter
-				cellCount.f2++;
-			}
-
-			// check threshold
-			if(cellCount.f2 >= popThreshold) {
-				// emit record
-				out.collect(cellCount);
 			}
 		}
 	}

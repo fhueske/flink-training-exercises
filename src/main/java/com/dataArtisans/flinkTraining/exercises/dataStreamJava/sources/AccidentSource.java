@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-package com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils;
+package com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources;
 
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.Accident;
+import com.dataArtisans.flinkTraining.exercises.dataStreamJava.utils.GeoUtils;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
@@ -35,7 +36,7 @@ import java.util.Random;
  * Accidents are randomly placed in the New York City area.
  *
  */
-public class AccidentGenerator implements SourceFunction<Accident> {
+public class AccidentSource implements SourceFunction<Accident> {
 
 	private static int DEFAULT_MAX_MINS_TO_CLEARANCE = 120;
 	private static double DEFAULT_ACCIDENT_PROB = 0.4;
@@ -44,7 +45,7 @@ public class AccidentGenerator implements SourceFunction<Accident> {
 	private int maxMinsToClearance;
 	private double accidentsProb;
 
-	public AccidentGenerator() {
+	public AccidentSource() {
 		this(1.0f);
 	}
 
@@ -53,7 +54,7 @@ public class AccidentGenerator implements SourceFunction<Accident> {
 	 *
 	 * @param servingSpeedFactor Serving speed is adjusted with respect to the serving speed factor.
 	 */
-	public AccidentGenerator(float servingSpeedFactor) {
+	public AccidentSource(float servingSpeedFactor) {
 		this(servingSpeedFactor, DEFAULT_MAX_MINS_TO_CLEARANCE, DEFAULT_ACCIDENT_PROB);
 	}
 
@@ -68,7 +69,7 @@ public class AccidentGenerator implements SourceFunction<Accident> {
 	 * @param maxMinsToClearance Maximum time until an accident is cleared.
 	 * @param accidentProb Probability to generate an accident every logical minute.
 	 */
-	public AccidentGenerator(float servingSpeedFactor, int maxMinsToClearance, double accidentProb) {
+	public AccidentSource(float servingSpeedFactor, int maxMinsToClearance, double accidentProb) {
 		this.servingSpeedFactor = servingSpeedFactor;
 		this.maxMinsToClearance = maxMinsToClearance;
 		this.accidentsProb = accidentProb;
