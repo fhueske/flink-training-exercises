@@ -19,20 +19,25 @@ package com.dataArtisans.flinkTraining.exercises.dataStreamJava.rideSpeed;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.dataTypes.TaxiRide;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.rideCleansing.RideCleansing;
 import com.dataArtisans.flinkTraining.exercises.dataStreamJava.sources.TaxiRideSource;
-import org.apache.flink.api.common.functions.FoldFunction;
-import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.api.java.tuple.Tuple1;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
+import org.apache.flink.streaming.api.windowing.windows.GlobalWindow;
+import org.apache.flink.util.Collector;
 
 /**
  * Java reference implementation for the "Ride Speed" exercise of the Flink training (http://dataartisans.github.io/flink-training).
  * The task of the exercise is to compute the average speed of completed taxi rides from a data stream of taxi ride records.
  *
  * Parameters:
- *   --input path-to-input-directory
+ *   -input path to input file
+ *   -maxDelay maximum out of order delay of events
+ *   -speed serving speed factor
  *
  */
 public class RideSpeed {
@@ -40,14 +45,17 @@ public class RideSpeed {
 	public static void main(String[] args) throws Exception {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
-		String input = params.getRequired("input");
+		final String input = params.getRequired("input");
+		final int maxEventDelay = params.getInt("maxDelay", 0);
+		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input));
+		DataStream<TaxiRide> rides = env.addSource(
+				new TaxiRideSource(input, maxEventDelay, servingSpeedFactor));
 
 		DataStream<Tuple2<Long, Float>> rideSpeeds = rides
 				// filter out rides that do not start or stop in NYC
@@ -56,20 +64,8 @@ public class RideSpeed {
 				.keyBy("rideId")
 				// match ride start and end records
 				.countWindow(2)
-				.fold(new Tuple2<TaxiRide, TaxiRide>(), new FoldFunction<TaxiRide, Tuple2<TaxiRide, TaxiRide>>() {
-					@Override
-					public Tuple2<TaxiRide, TaxiRide> fold(Tuple2<TaxiRide, TaxiRide> startEndPair, TaxiRide ride) throws Exception {
-						if(ride.isStart) {
-							startEndPair.f0 = ride;
-						}
-						else {
-							startEndPair.f1 = ride;
-						}
-						return startEndPair;
-					}
-				})
-				.map(new SpeedComputer());
 				// compute the average speed of a ride
+				.apply(new SpeedComputer());
 
 		// emit the result on stdout
 		rideSpeeds.print();
@@ -81,36 +77,47 @@ public class RideSpeed {
 	/**
 	 * Computes the average speed of a taxi ride from its start and end record.
 	 */
-	public static class SpeedComputer implements MapFunction<Tuple2<TaxiRide, TaxiRide>, Tuple2<Long, Float>> {
+	public static class SpeedComputer implements WindowFunction<TaxiRide, Tuple2<Long, Float>, Tuple, GlobalWindow> {
 
-		private static int MILLIS_PER_HOUR = 1000 * 60 * 60;
-		private Tuple2<Long, Float> outT = new Tuple2<Long, Float>();
+		private Tuple2<Long, Float> avgSpeed = new Tuple2<Long, Float>(0L, 0.0f);
 
+		@SuppressWarnings("unchecked")
 		@Override
-		public Tuple2<Long, Float> map(Tuple2<TaxiRide, TaxiRide> joinedEvents) throws Exception {
+		public void apply(
+				Tuple key,
+				GlobalWindow window,
+				Iterable<TaxiRide> rides,
+				Collector<Tuple2<Long, Float>> out) throws Exception
+		{
+			// extract key
+			avgSpeed.f0 = ((Tuple1<Long>)key).f0;
 
-			float distance = joinedEvents.f1.travelDistance;
-			long startTime = joinedEvents.f0.time.getMillis();
-			long endTime = joinedEvents.f1.time.getMillis();
+			// identify start and end time and travel distance
+			long startTime = 0;
+			long endTime = 0;
+			float distance = 0.0f;
+			for(TaxiRide ride : rides) {
+				if(ride.isStart) {
+					startTime = ride.time.getMillis();
+				}
+				else {
+					endTime = ride.time.getMillis();
+					distance = ride.travelDistance;
+				}
+			}
 
-			float speed;
+			// compute average speed
 			long timeDiff = endTime - startTime;
 			if(timeDiff != 0) {
 				// speed = distance / time
-				speed = (distance / timeDiff) * MILLIS_PER_HOUR;
+				avgSpeed.f1 = (distance / timeDiff) * (1000 * 60 * 60);
 			}
 			else {
-				speed = -1;
+				avgSpeed.f1 = -1f;
 			}
 
-			// set ride Id
-			outT.f0 = joinedEvents.f0.rideId;
-			// compute speed
-			outT.f1 = speed;
-
-			return outT;
+			out.collect(avgSpeed);
 		}
 	}
-
 
 }

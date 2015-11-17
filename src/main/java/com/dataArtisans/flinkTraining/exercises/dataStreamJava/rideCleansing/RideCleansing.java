@@ -31,7 +31,9 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
  * The resulting stream should be printed.
  *
  * Parameters:
- *   --input path-to-input-directory
+ *   -input path to input file
+ *   -maxDelay maximum out of order delay of events
+ *   -speed serving speed factor
  *
  */
 public class RideCleansing {
@@ -39,14 +41,17 @@ public class RideCleansing {
 	public static void main(String[] args) throws Exception {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
-		String input = params.getRequired("input");
+		final String input = params.getRequired("input");
+		final int maxEventDelay = params.getInt("maxDelay", 0);
+		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input));
+		DataStream<TaxiRide> rides = env.addSource(
+				new TaxiRideSource(input, maxEventDelay, servingSpeedFactor));
 
 		DataStream<TaxiRide> filteredRides = rides
 				// filter out rides that do not start or stop in NYC

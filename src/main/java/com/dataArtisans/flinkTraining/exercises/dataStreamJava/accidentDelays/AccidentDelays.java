@@ -26,6 +26,7 @@ import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction;
@@ -42,8 +43,9 @@ import java.util.Set;
  * might have been delayed due to accidents.
  *
  * Parameters:
- *   --input path-to-input-directory
- *   --speed serving-speed-of-generator
+ *   -input path to input file
+ *   -maxDelay maximum out of order delay of events
+ *   -speed serving speed factor
  *
  */
 public class AccidentDelays {
@@ -51,16 +53,23 @@ public class AccidentDelays {
 	public static void main(String[] args) throws Exception {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
-		String input = params.getRequired("input");
-		float servingSpeedFactor = params.getFloat("speed", 1.0f);
+		final String input = params.getRequired("input");
+		final int maxEventDelay = params.getInt("maxDelay", 0);
+		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// create taxi ride stream
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input, servingSpeedFactor))
+		DataStream<Tuple2<Integer,TaxiRide>> rides = env.addSource(
+				new TaxiRideSource(input, maxEventDelay, servingSpeedFactor))
 				// filter rides which do not start and end in NYC
-				.filter(new RideCleansing.NYCFilter());
+				.filter(new RideCleansing.NYCFilter())
+				// map taxi ride to all grid cells on its way
+				.flatMap(new RouteCellMapper())
+				// group by route cell id
+				.keyBy(0);
 
 		// create accidents stream
 		DataStream<Tuple2<Integer,Accident>> accidents = env
@@ -70,13 +79,9 @@ public class AccidentDelays {
 				// group by accident cell id
 				.keyBy(0);
 
-		DataStream<Tuple2<Integer, TaxiRide>> rideAccidents = rides
-				// map taxi ride to all grid cells on its way
-				.flatMap(new RouteCellMapper())
-				// group by route cell id
-				.keyBy(0)
+		DataStream<Tuple2<Integer, TaxiRide>> rideAccidents =
 				// connect streams and match rides and accidents on the same grid cell
-				.connect(accidents)
+				rides.connect(accidents)
 				.flatMap(new AccidentsPerRideCounter());
 
 		rideAccidents.print();

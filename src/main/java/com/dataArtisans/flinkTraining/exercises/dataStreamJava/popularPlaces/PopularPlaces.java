@@ -37,8 +37,10 @@ import org.apache.flink.streaming.api.windowing.time.Time;
  * The task of the exercise is to identify every five minutes popular areas where many taxi rides arrived or departed in the last 15 minutes.
  *
  * Parameters:
- *   --input path-to-input-directory
- *   -- popThreshold min-num-of-taxis-for-popular-places
+ *   -input path to input file
+ *   -popThreshold minimum number of taxi rides for popular places
+ *   -maxDelay maximum out of order delay of events
+ *   -speed serving speed factor
  *
  */
 public class PopularPlaces {
@@ -49,13 +51,16 @@ public class PopularPlaces {
 		ParameterTool params = ParameterTool.fromArgs(args);
 		String input = params.getRequired("input");
 		final int popThreshold = Integer.parseInt(params.getRequired("popThreshold"));
+		final int maxEventDelay = params.getInt("maxDelay", 0);
+		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input));
+		DataStream<TaxiRide> rides = env.addSource(
+				new TaxiRideSource(input, maxEventDelay, servingSpeedFactor));
 
 		// find n most popular spots
 		DataStream<Tuple4<Float, Float, Boolean, Integer>> popularSpots = rides
