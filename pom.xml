@@ -157,7 +157,7 @@
 
 							<archive>
 								<manifestEntries>
-									<main-class>com.dataArtisans.flinkTraining.dataSetPreparation.MBoxParser</main-class>
+									<main-class>com.dataartisans.flink_training.dataset_preparation.MBoxParser</main-class>
 								</manifestEntries>
 							</archive>
 
