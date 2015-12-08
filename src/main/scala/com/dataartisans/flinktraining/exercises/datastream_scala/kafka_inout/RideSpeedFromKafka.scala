@@ -19,12 +19,13 @@ package com.dataartisans.flinktraining.exercises.datastream_scala.kafka_inout
 import java.util.Properties
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.TaxiRideSchema
-import org.apache.flink.api.common.functions.{MapFunction, FlatMapFunction}
+import org.apache.flink.api.common.functions.RichFlatMapFunction
+import org.apache.flink.streaming.api.TimeCharacteristic
+import org.apache.flink.streaming.api.functions.TimestampExtractor
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer082
 import org.apache.flink.util.Collector
 
-import scala.collection.mutable
 
 /**
  * Scala reference implementation for the "Ride Speed" exercise of the Flink training (http://dataartisans.github.io/flink-training).
@@ -40,7 +41,10 @@ object RideSpeedFromKafka {
   @throws(classOf[Exception])
   def main(args: Array[String]) {
 
+    val maxDelay = 60 // events are out of order by max 60 seconds
+
     val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     // configure Kafka consumer
     val kafkaProps = new Properties
@@ -49,19 +53,31 @@ object RideSpeedFromKafka {
     kafkaProps.setProperty("group.id", RIDE_SPEED_GROUP)
 
     // create a TaxiRide data stream
-    val rides = env.addSource(
+    val rides = env
+      .addSource(
       new FlinkKafkaConsumer082[TaxiRide](
         RideCleansingToKafka.CLEANSED_RIDES_TOPIC,
         new TaxiRideSchema,
         kafkaProps))
+      .assignTimestamps(new TimestampExtractor[TaxiRide] {
+
+        var curWatermark = 0L
+
+        override def extractTimestamp(ride: TaxiRide, curTime: Long): Long = ride.time.getMillis
+
+        override def extractWatermark(ride: TaxiRide, curTime: Long): Long = {
+          curWatermark = curTime - (maxDelay * 1000)
+          -1
+        }
+
+        override def getCurrentWatermark: Long = curWatermark
+    })
 
     val rideSpeeds = rides
       // group records by rideId
       .keyBy("rideId")
-      // match ride start and end records
-      .flatMap(new RideEventJoiner)
       // compute the average speed of a ride
-      .map(new SpeedComputer)
+      .flatMap(new SpeedComputer)
 
     // emit the result on stdout
     rideSpeeds.print()
@@ -71,48 +87,31 @@ object RideSpeedFromKafka {
   }
 
   /**
-   * Matches start and end TaxiRide records.
-   */
-  class RideEventJoiner extends FlatMapFunction[TaxiRide, (TaxiRide, TaxiRide)] {
-
-    private val startRecords = mutable.HashMap.empty[Long, TaxiRide]
-
-    def flatMap(rideEvent: TaxiRide, out: Collector[(TaxiRide, TaxiRide)]) {
-      if (rideEvent.isStart) {
-        // remember start record
-        startRecords += (rideEvent.rideId -> rideEvent)
-      } else {
-        // get and forget start record
-        startRecords.remove(rideEvent.rideId) match {
-          case Some(startRecord) => out.collect((startRecord, rideEvent))
-          case _ => // we have no start record, ignore this one
-        }
-      }
-    }
-  }
-
-  object SpeedComputer {
-    private var MILLIS_PER_HOUR: Int = 1000 * 60 * 60
-  }
-
-  /**
    * Computes the average speed of a taxi ride from its start and end record.
    */
-  class SpeedComputer extends MapFunction[(TaxiRide, TaxiRide), (Long, Float)] {
+  class SpeedComputer extends RichFlatMapFunction[TaxiRide, (Long, Float)] {
 
-    def map(joinedEvents: (TaxiRide, TaxiRide)): (Long, Float) = {
-      val startTime = joinedEvents._1.time.getMillis
-      val endTime = joinedEvents._2.time.getMillis
-      val distance = joinedEvents._2.travelDistance
+    override def flatMap(ride: TaxiRide, out: Collector[(Long, Float)]): Unit = {
+      val state = getRuntimeContext.getKeyValueState("ride", classOf[TaxiRide], null)
 
-      val timeDiff = endTime - startTime
-      val speed = if (timeDiff != 0) {
-        (distance / timeDiff) * SpeedComputer.MILLIS_PER_HOUR
-      } else {
-        -1
+      if(state.value() == null) {
+        // first ride
+        state.update(ride)
       }
+      else {
+        // second ride
+        val startEvent = if (ride.isStart) ride else state.value()
+        val endEvent = if (ride.isStart) state.value() else ride
 
-      (joinedEvents._1.rideId, speed)
+        val timeDiff = endEvent.time.getMillis - startEvent.time.getMillis
+        val speed = if (timeDiff != 0) {
+          (endEvent.travelDistance / timeDiff) * 60 * 60 * 1000
+        } else {
+          -1
+        }
+
+        out.collect( (startEvent.rideId, speed) )
+      }
     }
   }
 

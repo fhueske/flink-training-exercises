@@ -21,6 +21,7 @@ import com.dataartisans.flinktraining.exercises.datastream_java.sources.{Acciden
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.GeoUtils
 import org.apache.flink.api.common.functions.{FlatMapFunction, MapFunction}
 import org.apache.flink.api.java.utils.ParameterTool
+import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.util.Collector
@@ -29,13 +30,14 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 /**
- * Scala reference implementation for the "Accident Delays" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to connect a data stream of taxi rides and a stream of accident reports to identify taxi rides that
- * might have been delayed due to accidents.
+ * Scala reference implementation for the "Accident Delays" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to connect a data stream of taxi rides and a stream of accident
+ * reports to identify taxi rides that might have been delayed due to accidents.
  *
  * Parameters:
- * --input path-to-input-directory
- * --speed serving-speed-of-generator
+ * -input path-to-input-file
  *
  */
 object AccidentDelays {
@@ -44,32 +46,34 @@ object AccidentDelays {
 
     val params = ParameterTool.fromArgs(args)
     val input = params.getRequired("input")
-    val servingSpeedFactor = params.getFloat("speed", 1.0f)
+
+    val maxDelay = 60 // events are out of order by max 60 seconds
+    val speed = 600 // events of 10 minutes are served in 1 second
 
     // set up streaming execution environment
     val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     // create taxi ride stream
     val rides = env
-      .addSource(new TaxiRideSource(input, servingSpeedFactor))
+      .addSource(new TaxiRideSource(input, maxDelay, speed))
       // filter rides that do not start and end in NYC
       .filter(r => GeoUtils.isInNYC(r.startLon, r.startLat) && GeoUtils.isInNYC(r.endLon, r.endLat))
+      // map taxi ride to all grid cells on its way
+      .flatMap(new RouteCellMapper)
 
     // create accidents stream
     val accidents = env
-      .addSource(new AccidentSource(servingSpeedFactor))
+      .addSource(new AccidentSource(speed))
       // map accident to grid cell
       .map(new AccidentCellMapper)
-      // group by accident cell id
-      .partitionByHash(0)
 
     val rideAccidents = rides
-      // map taxi ride to all grid cells on its way
-      .flatMap(new RouteCellMapper)
-      // group by route cell id
-      .partitionByHash(0)
-      // connect streams and match rides and accidents on the same grid cell
+      // connect rides and accidents
       .connect(accidents)
+      // key both streams on cell id
+      .keyBy(0, 0)
+      // match rides and accidents on the same grid cell
       .flatMap(new AccidentsPerRideCounter)
 
     rideAccidents.print()

@@ -18,20 +18,24 @@ package com.dataartisans.flinktraining.exercises.datastream_java.kafka_inout;
 
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.TaxiRideSchema;
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide;
-import org.apache.flink.api.common.functions.FlatMapFunction;
-import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.common.state.OperatorState;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.TimestampExtractor;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer082;
 import org.apache.flink.util.Collector;
 
-import java.util.HashMap;
 import java.util.Properties;
 
 /**
- * Java reference implementation for the "Ride Speed" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to read taxi ride records from an Apache Kafka topic and compute the average speed of completed taxi rides.
+ * Java reference implementation for the "Ride Speed" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to read taxi ride records from an Apache Kafka topic and compute
+ * the average speed of completed taxi rides.
  *
  */
 public class RideSpeedFromKafka {
@@ -42,8 +46,11 @@ public class RideSpeedFromKafka {
 
 	public static void main(String[] args) throws Exception {
 
+		final int maxEventDelay = 60; // events are out of order by max 60 seconds
+
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// configure the Kafka consumer
 		Properties kafkaProps = new Properties();
@@ -52,20 +59,38 @@ public class RideSpeedFromKafka {
 		kafkaProps.setProperty("group.id", RIDE_SPEED_GROUP);
 
 		// create a TaxiRide data stream
-		DataStream<TaxiRide> rides =
-					env.addSource(new FlinkKafkaConsumer082<TaxiRide>(
-							RideCleansingToKafka.CLEANSED_RIDES_TOPIC,
-							new TaxiRideSchema(),
-							kafkaProps)
-					);
+		DataStream<TaxiRide> rides = env
+				.addSource(new FlinkKafkaConsumer082<TaxiRide>(
+						RideCleansingToKafka.CLEANSED_RIDES_TOPIC,
+						new TaxiRideSchema(),
+						kafkaProps)
+				)
+				.assignTimestamps(new TimestampExtractor<TaxiRide>() {
+
+					long curWatermark;
+
+					@Override
+					public long extractTimestamp(TaxiRide ride, long currentTimestamp) {
+						return ride.time.getMillis();
+					}
+
+					@Override
+					public long extractWatermark(TaxiRide ride, long currentTimestamp) {
+						curWatermark = currentTimestamp - (maxEventDelay * 1000);
+						return -1;
+					}
+
+					@Override
+					public long getCurrentWatermark() {
+						return curWatermark;
+					}
+				});
 
 		DataStream<Tuple2<Long, Float>> rideSpeeds = rides
 				// group records by rideId
 				.keyBy("rideId")
-				// match ride start and end records
-				.flatMap(new RideEventJoiner())
 				// compute the average speed of a ride
-				.map(new SpeedComputer());
+				.flatMap(new SpeedComputer());
 
 		// emit the result on stdout
 		rideSpeeds.print();
@@ -74,65 +99,38 @@ public class RideSpeedFromKafka {
 		env.execute("Average Ride Speed");
 	}
 
-	/**
-	 * Matches start and end TaxiRide records.
-	 */
-	public static class RideEventJoiner implements FlatMapFunction<TaxiRide, Tuple2<TaxiRide, TaxiRide>> {
 
-		private HashMap<Long, TaxiRide> startRecords = new HashMap<Long, TaxiRide>();
-		private Tuple2<TaxiRide, TaxiRide> joinedEvents = new Tuple2<TaxiRide, TaxiRide>();
+	public static class SpeedComputer extends RichFlatMapFunction<TaxiRide, Tuple2<Long, Float>> {
 
 		@Override
-		public void flatMap(TaxiRide rideEvent, Collector<Tuple2<TaxiRide, TaxiRide>> out) throws Exception {
+		public void flatMap(TaxiRide taxiRide, Collector<Tuple2<Long, Float>> out)
+				throws Exception {
 
-			if(rideEvent.isStart) {
-				// remember start record
-				startRecords.put(rideEvent.rideId, rideEvent);
+			OperatorState<TaxiRide> state =
+					this.getRuntimeContext().getKeyValueState("ride", TaxiRide.class, null);
+
+			if(state.value() == null) {
+				// we received the first element. Put it into the state
+				state.update(taxiRide);
 			}
 			else {
-				// get and forget start record
-				TaxiRide startRecord = startRecords.remove(rideEvent.rideId);
-				if(startRecord != null) {
-					// return start and end record
-					joinedEvents.f0 = startRecord;
-					joinedEvents.f1 = rideEvent;
-					out.collect(joinedEvents);
+				// we received the second element. Compute the speed.
+				TaxiRide startEvent = taxiRide.isStart ? taxiRide : state.value();
+				TaxiRide endEvent = taxiRide.isStart ? state.value() : taxiRide;
+
+				long timeDiff = endEvent.time.getMillis() - startEvent.time.getMillis();
+				float avgSpeed;
+
+				if(timeDiff != 0) {
+					// speed = distance / time
+					avgSpeed = (endEvent.travelDistance / timeDiff) * (1000 * 60 * 60);
 				}
+				else {
+					avgSpeed = -1f;
+				}
+
+				out.collect(new Tuple2<Long, Float>(startEvent.rideId, avgSpeed));
 			}
-		}
-	}
-
-	/**
-	 * Computes the average speed of a taxi ride from its start and end record.
-	 */
-	public static class SpeedComputer implements MapFunction<Tuple2<TaxiRide, TaxiRide>, Tuple2<Long, Float>> {
-
-		private static int MILLIS_PER_HOUR = 1000 * 60 * 60;
-		private Tuple2<Long, Float> outT = new Tuple2<Long, Float>();
-
-		@Override
-		public Tuple2<Long, Float> map(Tuple2<TaxiRide, TaxiRide> joinedEvents) throws Exception {
-
-			float distance = joinedEvents.f1.travelDistance;
-			long startTime = joinedEvents.f0.time.getMillis();
-			long endTime = joinedEvents.f1.time.getMillis();
-
-			float speed;
-			long timeDiff = endTime - startTime;
-			if(timeDiff != 0) {
-				// speed = distance / time
-				speed = (distance / timeDiff) * MILLIS_PER_HOUR;
-			}
-			else {
-				speed = -1;
-			}
-
-			// set ride Id
-			outT.f0 = joinedEvents.f0.rideId;
-			// compute speed
-			outT.f1 = speed;
-
-			return outT;
 		}
 	}
 

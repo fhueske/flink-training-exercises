@@ -21,9 +21,8 @@ import com.dataartisans.flinktraining.exercises.datastream_java.rideCleansing.Ri
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.GeoUtils;
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide;
 import org.apache.flink.api.common.functions.FilterFunction;
-import org.apache.flink.api.common.functions.FoldFunction;
 import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -33,14 +32,14 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.time.Time;
 
 /**
- * Java reference implementation for the "Popular Places" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to identify every five minutes popular areas where many taxi rides arrived or departed in the last 15 minutes.
+ * Java reference implementation for the "Popular Places" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to identify every five minutes popular areas where many taxi rides
+ * arrived or departed in the last 15 minutes.
  *
  * Parameters:
- *   -input path to input file
- *   -popThreshold minimum number of taxi rides for popular places
- *   -maxDelay maximum out of order delay of events
- *   -speed serving speed factor
+ * -input path-to-input-file
  *
  */
 public class PopularPlaces {
@@ -50,9 +49,10 @@ public class PopularPlaces {
 		// read parameters
 		ParameterTool params = ParameterTool.fromArgs(args);
 		String input = params.getRequired("input");
-		final int popThreshold = Integer.parseInt(params.getRequired("popThreshold"));
-		final int maxEventDelay = params.getInt("maxDelay", 0);
-		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
+
+		final int popThreshold = 20; // threshold for popular places
+		final int maxEventDelay = 60; // events are out of order by max 60 seconds
+		final float servingSpeedFactor = 600; // events of 10 minutes are served in 1 second
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -72,21 +72,9 @@ public class PopularPlaces {
 				.keyBy(0, 1)
 				// build sliding window
 				.timeWindow(Time.minutes(15), Time.minutes(5))
-				// count events in window
-				.fold(new Tuple3<Integer, Boolean, Integer>(0, false, 0),
-						new FoldFunction<Tuple2<Integer, Boolean>, Tuple3<Integer, Boolean, Integer>>() {
-					@Override
-					public Tuple3<Integer, Boolean, Integer> fold(
-							Tuple3<Integer, Boolean, Integer> cnt,
-							Tuple2<Integer, Boolean> ride) throws Exception {
-
-						cnt.f0 = ride.f0;
-						cnt.f1 = ride.f1;
-						cnt.f2++;
-						return cnt;
-					}
-				})
-				// filter by pop threshold
+				// count ride events in window
+				.reduce(new RideCounter())
+				// filter by popularity threshold
 				.filter(new FilterFunction<Tuple3<Integer, Boolean, Integer>>() {
 					@Override
 					public boolean filter(Tuple3<Integer, Boolean, Integer> count) throws Exception {
@@ -107,19 +95,35 @@ public class PopularPlaces {
 	 * Map taxi ride to grid cell and event type.
 	 * Start records use departure location, end record use arrival location.
 	 */
-	public static class GridCellMatcher implements MapFunction<TaxiRide, Tuple2<Integer, Boolean>> {
+	public static class GridCellMatcher implements MapFunction<TaxiRide, Tuple3<Integer, Boolean, Integer>> {
 
 		@Override
-		public Tuple2<Integer, Boolean> map(TaxiRide taxiRide) throws Exception {
+		public Tuple3<Integer, Boolean, Integer> map(TaxiRide taxiRide) throws Exception {
 			if(taxiRide.isStart) {
 				// get grid cell id for start location
 				int gridId = GeoUtils.mapToGridCell(taxiRide.startLon, taxiRide.startLat);
-				return new Tuple2<Integer, Boolean>(gridId, true);
+				return new Tuple3<Integer, Boolean, Integer>(gridId, true, 1);
 			} else {
 				// get grid cell id for end location
 				int gridId = GeoUtils.mapToGridCell(taxiRide.endLon, taxiRide.endLat);
-				return new Tuple2<Integer, Boolean>(gridId, false);
+				return new Tuple3<Integer, Boolean, Integer>(gridId, false, 1);
 			}
+		}
+	}
+
+	/**
+	 * Counts the number of rides arriving or departing.
+	 */
+	public static class RideCounter implements ReduceFunction<Tuple3<Integer, Boolean, Integer>> {
+
+		@Override
+		public Tuple3<Integer, Boolean, Integer> reduce(
+				Tuple3<Integer, Boolean, Integer> r1,
+				Tuple3<Integer, Boolean, Integer> r2) throws Exception {
+
+			// add counts
+			r1.f2 += r2.f2;
+			return r1;
 		}
 	}
 

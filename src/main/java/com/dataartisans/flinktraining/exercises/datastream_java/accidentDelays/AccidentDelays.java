@@ -38,14 +38,14 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Java reference implementation for the "Accident Delays" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to connect a data stream of taxi rides and a stream of accident reports to identify taxi rides that
- * might have been delayed due to accidents.
+ * Java reference implementation for the "Accident Delays" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to connect a data stream of taxi rides and a stream of accident
+ * reports to identify taxi rides that might have been delayed due to accidents.
  *
  * Parameters:
- *   -input path to input file
- *   -maxDelay maximum out of order delay of events
- *   -speed serving speed factor
+ * -input path-to-input-file
  *
  */
 public class AccidentDelays {
@@ -54,8 +54,9 @@ public class AccidentDelays {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
 		final String input = params.getRequired("input");
-		final int maxEventDelay = params.getInt("maxDelay", 0);
-		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
+
+		final int maxEventDelay = 60; // events are out of order by max 60 seconds
+		final float servingSpeedFactor = 600; // events of 10 minutes are served in 1 second
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -67,21 +68,20 @@ public class AccidentDelays {
 				// filter rides which do not start and end in NYC
 				.filter(new RideCleansing.NYCFilter())
 				// map taxi ride to all grid cells on its way
-				.flatMap(new RouteCellMapper())
-				// group by route cell id
-				.keyBy(0);
+				.flatMap(new RouteCellMapper());
 
 		// create accidents stream
 		DataStream<Tuple2<Integer,Accident>> accidents = env
 				.addSource(new AccidentSource(servingSpeedFactor))
 				// map accident to grid cell
-				.map(new AccidentCellMapper())
-				// group by accident cell id
-				.keyBy(0);
+				.map(new AccidentCellMapper());
 
-		DataStream<Tuple2<Integer, TaxiRide>> rideAccidents =
-				// connect streams and match rides and accidents on the same grid cell
-				rides.connect(accidents)
+		DataStream<Tuple2<Integer, TaxiRide>> rideAccidents = rides
+				// connect rides and accidents
+				.connect(accidents)
+				// key both streams on cell id
+				.keyBy(0, 0)
+				// match rides and accidents on the same grid cell
 				.flatMap(new AccidentsPerRideCounter());
 
 		rideAccidents.print();

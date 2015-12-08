@@ -19,25 +19,24 @@ package com.dataartisans.flinktraining.exercises.datastream_java.rideSpeed;
 import com.dataartisans.flinktraining.exercises.datastream_java.rideCleansing.RideCleansing;
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRideSource;
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide;
-import org.apache.flink.api.java.tuple.Tuple;
-import org.apache.flink.api.java.tuple.Tuple1;
+import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.common.state.OperatorState;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
-import org.apache.flink.streaming.api.windowing.windows.GlobalWindow;
 import org.apache.flink.util.Collector;
 
 /**
- * Java reference implementation for the "Ride Speed" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to compute the average speed of completed taxi rides from a data stream of taxi ride records.
+ * Java reference implementation for the "Ride Speed" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to compute the average speed of completed taxi rides from a data
+ * stream of taxi ride records.
  *
  * Parameters:
- *   -input path to input file
- *   -maxDelay maximum out of order delay of events
- *   -speed serving speed factor
+ * -input path-to-input-file
  *
  */
 public class RideSpeed {
@@ -46,8 +45,9 @@ public class RideSpeed {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
 		final String input = params.getRequired("input");
-		final int maxEventDelay = params.getInt("maxDelay", 0);
-		final float servingSpeedFactor = params.getFloat("speed", 1.0f);
+
+		final int maxEventDelay = 60; // events are out of order by max 60 seconds
+		final float servingSpeedFactor = 600; // events of 10 minutes are served in 1 second
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -62,12 +62,10 @@ public class RideSpeed {
 				.filter(new RideCleansing.NYCFilter())
 				// group records by rideId
 				.keyBy("rideId")
-				// match ride start and end records
-				.countWindow(2)
 				// compute the average speed of a ride
-				.apply(new SpeedComputer());
+				.flatMap(new SpeedComputer());
 
-		// emit the result on stdout
+		// print the result to stdout
 		rideSpeeds.print();
 
 		// run the transformation pipeline
@@ -75,48 +73,40 @@ public class RideSpeed {
 	}
 
 	/**
-	 * Computes the average speed of a taxi ride from its start and end record.
+	 * Computes the
+	 *
 	 */
-	public static class SpeedComputer implements WindowFunction<TaxiRide, Tuple2<Long, Float>, Tuple, GlobalWindow> {
+	public static class SpeedComputer extends RichFlatMapFunction<TaxiRide, Tuple2<Long, Float>> {
 
-		private Tuple2<Long, Float> avgSpeed = new Tuple2<Long, Float>(0L, 0.0f);
-
-		@SuppressWarnings("unchecked")
 		@Override
-		public void apply(
-				Tuple key,
-				GlobalWindow window,
-				Iterable<TaxiRide> rides,
-				Collector<Tuple2<Long, Float>> out) throws Exception
-		{
-			// extract key
-			avgSpeed.f0 = ((Tuple1<Long>)key).f0;
+		public void flatMap(TaxiRide taxiRide, Collector<Tuple2<Long, Float>> out)
+				throws Exception {
 
-			// identify start and end time and travel distance
-			long startTime = 0;
-			long endTime = 0;
-			float distance = 0.0f;
-			for(TaxiRide ride : rides) {
-				if(ride.isStart) {
-					startTime = ride.time.getMillis();
-				}
-				else {
-					endTime = ride.time.getMillis();
-					distance = ride.travelDistance;
-				}
-			}
+			OperatorState<TaxiRide> state =
+					this.getRuntimeContext().getKeyValueState("ride", TaxiRide.class, null);
 
-			// compute average speed
-			long timeDiff = endTime - startTime;
-			if(timeDiff != 0) {
-				// speed = distance / time
-				avgSpeed.f1 = (distance / timeDiff) * (1000 * 60 * 60);
+			if(state.value() == null) {
+				// we received the first element. Put it into the state
+				state.update(taxiRide);
 			}
 			else {
-				avgSpeed.f1 = -1f;
-			}
+				// we received the second element. Compute the speed.
+				TaxiRide startEvent = taxiRide.isStart ? taxiRide : state.value();
+				TaxiRide endEvent = taxiRide.isStart ? state.value() : taxiRide;
 
-			out.collect(avgSpeed);
+				long timeDiff = endEvent.time.getMillis() - startEvent.time.getMillis();
+				float avgSpeed;
+
+				if(timeDiff != 0) {
+					// speed = distance / time
+					avgSpeed = (endEvent.travelDistance / timeDiff) * (1000 * 60 * 60);
+				}
+				else {
+					avgSpeed = -1f;
+				}
+
+				out.collect(new Tuple2<Long, Float>(startEvent.rideId, avgSpeed));
+			}
 		}
 	}
 

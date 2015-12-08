@@ -22,6 +22,7 @@ import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRi
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.GeoUtils;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
@@ -29,13 +30,15 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import java.util.Properties;
 
 /**
- * Java reference implementation for the "Ride Cleansing" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to filter a data stream of taxi ride records to keep only rides that start and end within New York City.
+ * Java reference implementation for the "Ride Cleansing" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to filter a data stream of taxi ride records to keep only rides that
+ * start and end within New York City.
  * The resulting stream should be written to an Apache Kafka topic.
  *
  * Parameters:
- *   --input path-to-input-directory
- *   --speed serving-speed-of-generator
+ * -input path-to-input-file
  *
  */
 public class RideCleansingToKafka {
@@ -47,13 +50,16 @@ public class RideCleansingToKafka {
 
 		ParameterTool params = ParameterTool.fromArgs(args);
 		String input = params.getRequired("input");
-		float servingSpeedFactor = params.getFloat("speed", 1.0f);
+
+		final int maxEventDelay = 60; // events are out of order by max 60 seconds
+		final float servingSpeedFactor = 600; // events of 10 minutes are served in 1 second
 
 		// set up streaming execution environment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
 		// start the data generator
-		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input, servingSpeedFactor));
+		DataStream<TaxiRide> rides = env.addSource(new TaxiRideSource(input, maxEventDelay, servingSpeedFactor));
 
 		DataStream<TaxiRide> filteredRides = rides
 				// filter out rides that do not start or stop in NYC

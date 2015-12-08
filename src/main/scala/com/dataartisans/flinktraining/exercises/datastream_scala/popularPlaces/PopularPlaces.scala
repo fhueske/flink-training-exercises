@@ -21,59 +21,59 @@ import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRide
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.GeoUtils
 import org.apache.flink.api.common.functions.MapFunction
 import org.apache.flink.api.java.utils.ParameterTool
+import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
+import org.apache.flink.streaming.api.windowing.time.{EventTime, Time}
 
 /**
- * Scala reference implementation for the "Popular Places" exercise of the Flink training (http://dataartisans.github.io/flink-training).
- * The task of the exercise is to identify every five minutes popular areas where many taxi rides arrived or departed in the last 15 minutes.
+ * Scala reference implementation for the "Popular Places" exercise of the Flink training
+ * (http://dataartisans.github.io/flink-training).
+ *
+ * The task of the exercise is to identify every five minutes popular areas where many taxi rides
+ * arrived or departed in the last 15 minutes.
  *
  * Parameters:
- * --input path-to-input-directory
- * -- popThreshold min-num-of-taxis-for-popular-places
- * --speed serving-speed-of-generator
+ * -input path-to-input-file
  *
  */
 object PopularPlaces {
-  private val COUNT_WINDOW_LENGTH = 15 * 60 * 1000L // 15 minutes in msecs
-  private val COUNT_WINDOW_FREQUENCY = 5 * 60 * 1000L // 5 minutes in msecs
 
   def main(args: Array[String]) {
 
     // read parameters
     val params = ParameterTool.fromArgs(args)
     val input = params.getRequired("input")
-    val popThreashold = params.getInt("popThreshold")
-    val servingSpeedFactor = params.getFloat("speed", 1.0f)
 
-    // adjust window size and eviction interval to fast-forward factor
-    val windowSize = (COUNT_WINDOW_LENGTH / servingSpeedFactor).toLong
-    val evictionInterval = (COUNT_WINDOW_FREQUENCY / servingSpeedFactor).toLong
+    val popThreshold = 20 // threshold for popular places
+    val maxDelay = 60 // events are out of order by max 60 seconds
+    val speed = 600 // events of 10 minutes are served in 1 second
 
     // set up streaming execution environment
     val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     // start the data generator
-    val rides = env.addSource(new TaxiRideSource(input, servingSpeedFactor))
+    val rides = env.addSource(new TaxiRideSource(input, maxDelay, speed))
 
 //    // find n most popular spots
-//    val popularSpots = rides
-//      // remove all rides which are not within NYC
-//      .filter { r => GeoUtils.isInNYC(r.startLon, r.startLat) && GeoUtils.isInNYC(r.endLon, r.endLat) }
-//      // match ride to grid cell and event type (start or end)
-//      .map(new GridCellMatcher)
-//      // partition by cell id and event type
-//      .groupBy(0, 1)
-//      // build sliding window
-//      .window(Time.of(windowSize, TimeUnit.MILLISECONDS))
-//        .every(Time.of(evictionInterval, TimeUnit.MILLISECONDS))
-//      // count events in window
-//      .mapWindow(new PopularityCounter(popThreashold))
-//      .flatten()
-//      // map grid cell to coordinates
-//      .map(new GridToCoordinates)
-//
-//    // print result on stdout
-//    popularSpots.print()
+    val popularSpots = rides
+      // remove all rides which are not within NYC
+      .filter { r => GeoUtils.isInNYC(r.startLon, r.startLat) && GeoUtils.isInNYC(r.endLon, r.endLat) }
+      // match ride to grid cell and event type (start or end)
+      .map(new GridCellMatcher)
+      // partition by cell id and event type
+      .keyBy(0, 1)
+      // build sliding window
+      .timeWindow(Time.minutes(15), Time.minutes(5))
+      // count events in window
+      .reduce( (r1, r2) => (r1._1, r1._2, r1._3 + r2._3) )
+      // filter by popularity threshold
+      .filter( c => c._3 >= popThreshold )
+      // map grid cell to coordinates
+      .map(new GridToCoordinates)
+
+    // print result on stdout
+    popularSpots.print()
 
     // execute the transformation pipeline
     env.execute("Popular Places")
@@ -83,39 +83,20 @@ object PopularPlaces {
    * Map taxi ride to grid cell and event type.
    * Start records use departure location, end record use arrival location.
    */
-  class GridCellMatcher extends MapFunction[TaxiRide, (Int, Boolean)] {
+  class GridCellMatcher extends MapFunction[TaxiRide, (Int, Boolean, Int)] {
 
-    def map(taxiRide: TaxiRide): (Int, Boolean) = {
+    def map(taxiRide: TaxiRide): (Int, Boolean, Int) = {
       if (taxiRide.isStart) {
         // get grid cell id for start location
         val gridId: Int = GeoUtils.mapToGridCell(taxiRide.startLon, taxiRide.startLat)
-        (gridId, true)
+        (gridId, true, 1)
       } else {
         // get grid cell id for end location
         val gridId: Int = GeoUtils.mapToGridCell(taxiRide.endLon, taxiRide.endLat)
-        (gridId, false)
+        (gridId, false, 1)
       }
     }
   }
-
-  /**
-   * Count window events for grid cell and event type.
-   * Only emits records if the count is equal or larger than the popularity threshold.
-   */
-//  class PopularityCounter(popThreshold: Int) extends WindowMapFunction[(Int, Boolean), (Int, Boolean, Int)] {
-//
-//    def mapWindow(values: java.lang.Iterable[(Int, Boolean)], out: Collector[(Int, Boolean, Int)]) {
-//
-//      // count records in window and build output record
-//      val result = values.asScala.foldLeft((0, false, 0)) { (l, r) => (r._1, r._2, l._3 + 1) }
-//
-//      // check threshold
-//      if (result._3 > popThreshold) {
-//        // emit record
-//        out.collect(result)
-//      }
-//    }
-//  }
 
   /**
    * Maps the grid cell id back to longitude and latitude coordinates.
