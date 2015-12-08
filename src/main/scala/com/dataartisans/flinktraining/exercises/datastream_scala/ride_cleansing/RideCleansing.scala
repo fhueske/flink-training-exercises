@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.datastream_scala.rideCleansing
+package com.dataartisans.flinktraining.exercises.datastream_scala.ride_cleansing
 
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRideSource
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.GeoUtils

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.dataset_scala.mailCount
+package com.dataartisans.flinktraining.exercises.dataset_scala.mail_count
 
 import com.dataartisans.flinktraining.dataset_preparation.MBoxParser
 import org.apache.flink.api.java.utils.ParameterTool

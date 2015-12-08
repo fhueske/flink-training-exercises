@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.datastream_scala.accidentdelays
+package com.dataartisans.flinktraining.exercises.datastream_scala.accident_delays
 
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.{TaxiRide, Accident}
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.{AccidentSource, TaxiRideSource}

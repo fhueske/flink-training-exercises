@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.datastream_java.rideSpeed;
+package com.dataartisans.flinktraining.exercises.datastream_java.ride_speed;
 
-import com.dataartisans.flinktraining.exercises.datastream_java.rideCleansing.RideCleansing;
+import com.dataartisans.flinktraining.exercises.datastream_java.ride_cleansing.RideCleansing;
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRideSource;
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.datastream_scala.rideSpeed
+package com.dataartisans.flinktraining.exercises.datastream_scala.ride_speed
 
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRideSource

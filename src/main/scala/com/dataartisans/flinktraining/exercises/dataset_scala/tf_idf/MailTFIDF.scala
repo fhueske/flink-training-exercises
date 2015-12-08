@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.dataset_scala.tfIdf
+package com.dataartisans.flinktraining.exercises.dataset_scala.tf_idf
 
 import java.util.StringTokenizer
 import java.util.regex.Pattern

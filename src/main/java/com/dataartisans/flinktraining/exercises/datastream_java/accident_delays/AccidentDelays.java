@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.datastream_java.accidentDelays;
+package com.dataartisans.flinktraining.exercises.datastream_java.accident_delays;
 
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.Accident;
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide;
-import com.dataartisans.flinktraining.exercises.datastream_java.rideCleansing.RideCleansing;
+import com.dataartisans.flinktraining.exercises.datastream_java.ride_cleansing.RideCleansing;
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.AccidentSource;
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRideSource;
 import com.dataartisans.flinktraining.exercises.datastream_java.utils.GeoUtils;

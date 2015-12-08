@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.dataartisans.flinktraining.exercises.datastream_scala.popularPlaces
+package com.dataartisans.flinktraining.exercises.datastream_scala.popular_places
 
 import com.dataartisans.flinktraining.exercises.datastream_java.datatypes.TaxiRide
 import com.dataartisans.flinktraining.exercises.datastream_java.sources.TaxiRideSource
